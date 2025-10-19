@@ -1,0 +1,515 @@
+{% extends "base.html" %}
+
+{% block title %}Scan Directory - File Categorizer{% endblock %}
+
+{% block content %}
+<div class="row">
+    <div class="col-12">
+        <h1 class="mb-4">
+            <i class="bi bi-search me-2"></i>Scan Directory
+        </h1>
+    </div>
+</div>
+
+<!-- Scan Form -->
+<div class="row mb-4">
+    <div class="col-12">
+        <div class="card">
+            <div class="card-header">
+                <h5 class="mb-0">Directory Scan Settings</h5>
+            </div>
+            <div class="card-body">
+                <form id="scan-form">
+                    <div class="row g-3">
+                        <div class="col-md-8">
+                            <label for="scan-path" class="form-label">Directory Path</label>
+                            <input type="text" class="form-control" id="scan-path" 
+                                   placeholder="Enter directory path to scan..." required>
+                            <div class="form-text">Enter the full path to the directory you want to scan</div>
+                        </div>
+                        <div class="col-md-4">
+                            <label class="form-label">Options</label>
+                            <div class="form-check">
+                                <input class="form-check-input" type="checkbox" id="recursive-scan" checked>
+                                <label class="form-check-label" for="recursive-scan">
+                                    Recursive scan (include subdirectories)
+                                </label>
+                            </div>
+                            <div class="form-check">
+                                <input class="form-check-input" type="checkbox" id="include-hidden">
+                                <label class="form-check-label" for="include-hidden">
+                                    Include hidden files
+                                </label>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="mt-3">
+                        <button type="submit" class="btn btn-primary" id="start-scan-btn">
+                            <i class="bi bi-play-fill me-2"></i>Start Scan
+                        </button>
+                        <button type="button" class="btn btn-outline-danger" id="stop-scan-btn" 
+                                style="display: none;" disabled>
+                            <i class="bi bi-stop-fill me-2"></i>Stop Scan
+                        </button>
+                        <button type="button" class="btn btn-secondary btn-sm ms-2" id="test-ui-btn">
+                            <i class="bi bi-bug me-1"></i>Test UI
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Scan Progress -->
+<div class="row mb-4" id="scan-progress-section" style="display: none;">
+    <div class="col-12">
+        <div class="card">
+            <div class="card-header">
+                <h5 class="mb-0">Scan Progress</h5>
+            </div>
+            <div class="card-body">
+                <div class="mb-3">
+                    <div class="d-flex justify-content-between mb-1">
+                        <span>Progress</span>
+                        <span id="progress-text">0%</span>
+                    </div>
+                    <div class="progress">
+                        <div class="progress-bar" id="progress-bar" role="progressbar" 
+                             style="width: 0%" aria-valuenow="0" aria-valuemin="0" aria-valuemax="100">
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="row text-center">
+                    <div class="col-md-3">
+                        <div class="border rounded p-2">
+                            <h6 class="text-muted mb-1">Files Scanned</h6>
+                            <h4 id="files-scanned">0</h4>
+                        </div>
+                    </div>
+                    <div class="col-md-3">
+                        <div class="border rounded p-2">
+                            <h6 class="text-muted mb-1">Categorized</h6>
+                            <h4 id="files-categorized">0</h4>
+                        </div>
+                    </div>
+                    <div class="col-md-3">
+                        <div class="border rounded p-2">
+                            <h6 class="text-muted mb-1">New Files</h6>
+                            <h4 id="new-files">0</h4>
+                        </div>
+                    </div>
+                    <div class="col-md-3">
+                        <div class="border rounded p-2">
+                            <h6 class="text-muted mb-1">Errors</h6>
+                            <h4 id="scan-errors">0</h4>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="mt-3">
+                    <small class="text-muted">Current file: <span id="current-file">-</span></small>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Scan Results -->
+<div class="row" id="scan-results-section" style="display: none;">
+    <div class="col-12">
+        <div class="card">
+            <div class="card-header">
+                <h5 class="mb-0">Scan Results</h5>
+            </div>
+            <div class="card-body">
+                <div id="scan-results-content">
+                    <!-- Results will be populated here -->
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+let scanEventSource = null;
+
+document.addEventListener('DOMContentLoaded', function() {
+    const scanForm = document.getElementById('scan-form');
+    const startBtn = document.getElementById('start-scan-btn');
+    const stopBtn = document.getElementById('stop-scan-btn');
+    
+    scanForm.addEventListener('submit', function(e) {
+        e.preventDefault();
+        startScan();
+    });
+    
+    stopBtn.addEventListener('click', function() {
+        stopScan();
+    });
+    
+    // Test UI button
+    const testBtn = document.getElementById('test-ui-btn');
+    testBtn.addEventListener('click', async function() {
+        console.log('Testing UI update...');
+        try {
+            const status = await API.get('scan/status');
+            console.log('Got status:', status);
+            document.getElementById('scan-progress-section').style.display = 'block';
+            updateScanProgress(status);
+            if (status.progress && status.progress.status === 'completed') {
+                onScanComplete(status.progress);
+            }
+        } catch (error) {
+            console.error('Test failed:', error);
+        }
+    });
+    
+    // Check for existing scan on page load
+    checkScanStatus();
+    
+    // Cleanup SSE connection when page is unloaded
+    window.addEventListener('beforeunload', function() {
+        if (scanEventSource) {
+            scanEventSource.close();
+        }
+    });
+});
+
+async function startScan() {
+    const scanPath = document.getElementById('scan-path').value.trim();
+    const recursive = document.getElementById('recursive-scan').checked;
+    const includeHidden = document.getElementById('include-hidden').checked;
+    
+    if (!scanPath) {
+        Utils.showToast('Please enter a directory path', 'warning');
+        return;
+    }
+    
+    try {
+        // Show progress section immediately
+        console.log('Showing progress section...');
+        document.getElementById('scan-progress-section').style.display = 'block';
+        
+        // Update button states immediately
+        document.getElementById('start-scan-btn').style.display = 'none';
+        document.getElementById('stop-scan-btn').style.display = 'inline-block';
+        document.getElementById('stop-scan-btn').disabled = false;
+        
+        // Start polling immediately (don't wait for scan to start)
+        console.log('Starting polling immediately...');
+        startProgressPolling();
+        
+        // Start scan
+        console.log('Starting scan API call...');
+        await API.post('scan', {
+            path: scanPath,
+            recursive: recursive,
+            include_hidden: includeHidden
+        });
+        
+        console.log('Scan API call completed');
+        Utils.showToast('Scan started successfully', 'success');
+        
+        // Try SSE as secondary option
+        try {
+            startProgressSSE();
+        } catch (error) {
+            console.log('SSE failed, continuing with polling:', error);
+        }
+        
+    } catch (error) {
+        console.error('Failed to start scan:', error);
+        Utils.showToast('Failed to start scan: ' + error.message, 'danger');
+        
+        // Hide progress section on error
+        document.getElementById('scan-progress-section').style.display = 'none';
+        document.getElementById('start-scan-btn').style.display = 'inline-block';
+        document.getElementById('stop-scan-btn').style.display = 'none';
+    }
+}
+
+async function stopScan() {
+    try {
+        await API.delete('scan');
+        Utils.showToast('Scan stop requested', 'info');
+        
+        // Update button states
+        document.getElementById('stop-scan-btn').disabled = true;
+        
+    } catch (error) {
+        console.error('Failed to stop scan:', error);
+        Utils.showToast('Failed to stop scan: ' + error.message, 'danger');
+    }
+}
+
+function startProgressSSE() {
+    // Close existing connection
+    if (scanEventSource) {
+        scanEventSource.close();
+    }
+    
+    // Create new SSE connection
+    scanEventSource = new EventSource('/api/progress/scan');
+    
+    scanEventSource.onopen = function(event) {
+        console.log('Connected to scan progress stream');
+    };
+    
+    scanEventSource.onmessage = function(event) {
+        try {
+            const data = JSON.parse(event.data);
+            
+            switch (data.type) {
+                case 'connected':
+                    console.log('SSE connected:', data.message);
+                    break;
+                    
+                case 'progress':
+                    updateScanProgress(data);
+                    break;
+                    
+                case 'finished':
+                    console.log('SSE finished:', data.message);
+                    scanEventSource.close();
+                    scanEventSource = null;
+                    
+                    // Get final status
+                    checkScanStatus().then(status => {
+                        if (status && status.progress) {
+                            onScanComplete(status.progress);
+                        }
+                    });
+                    break;
+                    
+                case 'error':
+                    console.error('SSE error:', data.message);
+                    Utils.showToast('Progress stream error: ' + data.message, 'danger');
+                    break;
+            }
+            
+        } catch (error) {
+            console.error('Failed to parse SSE data:', error);
+        }
+    };
+    
+    scanEventSource.onerror = function(event) {
+        console.error('SSE connection error:', event);
+        
+        // Always fallback to polling if SSE fails
+        console.log('SSE failed, falling back to polling immediately');
+        if (scanEventSource) {
+            scanEventSource.close();
+            scanEventSource = null;
+        }
+        startProgressPolling();
+    };
+}
+
+function startProgressPolling() {
+    // Fallback polling method - poll every 500ms for better responsiveness
+    console.log('Starting progress polling...');
+    
+    const pollInterval = setInterval(async () => {
+        try {
+            const status = await API.request('scan/status', { suppressToast: true });
+            console.log('Poll status:', status);
+            updateScanProgress(status);
+            
+            if (!status.active) {
+                console.log('Scan no longer active, stopping polling');
+                clearInterval(pollInterval);
+                onScanComplete(status.progress);
+            }
+            
+        } catch (error) {
+            console.error('Failed to get scan status:', error);
+        }
+    }, 500); // Poll every 500ms
+    
+    // Store interval ID so we can clear it if needed
+    window.currentPollInterval = pollInterval;
+}
+
+function updateScanProgress(status) {
+    console.log('updateScanProgress called with:', status);
+    
+    if (!status || !status.progress) {
+        console.log('No progress data in status');
+        return;
+    }
+    
+    const progress = status.progress;
+    console.log('Progress data:', progress);
+    
+    // Update progress bar
+    const percentage = progress.total_files > 0 
+        ? Math.round((progress.categorized_files / progress.total_files) * 100)
+        : 0;
+    
+    console.log(`Updating progress: ${progress.categorized_files}/${progress.total_files} = ${percentage}%`);
+    
+    document.getElementById('progress-bar').style.width = percentage + '%';
+    document.getElementById('progress-bar').setAttribute('aria-valuenow', percentage);
+    document.getElementById('progress-text').textContent = percentage + '%';
+    
+    // Update counters
+    document.getElementById('files-scanned').textContent = progress.total_files || 0;
+    document.getElementById('files-categorized').textContent = progress.categorized_files || 0;
+    document.getElementById('new-files').textContent = progress.new_files || 0;
+    document.getElementById('scan-errors').textContent = (progress.errors || []).length;
+    
+    // Update current file
+    const currentFile = progress.current_file || '-';
+    document.getElementById('current-file').textContent = 
+        currentFile.length > 50 ? '...' + currentFile.slice(-47) : currentFile;
+    
+    console.log('UI elements updated');
+}
+
+function onScanComplete(progress) {
+    // Update button states
+    document.getElementById('start-scan-btn').style.display = 'inline-block';
+    document.getElementById('stop-scan-btn').style.display = 'none';
+    
+    // Show results section
+    document.getElementById('scan-results-section').style.display = 'block';
+    
+    // Create results summary
+    const status = progress.status;
+    const isSuccess = status === 'completed';
+    const alertClass = isSuccess ? 'alert-success' : 'alert-warning';
+    const icon = isSuccess ? 'bi-check-circle' : 'bi-exclamation-triangle';
+    
+    let resultsHtml = `
+        <div class="alert ${alertClass}">
+            <i class="${icon} me-2"></i>
+            <strong>Scan ${status}</strong>
+        </div>
+        
+        <div class="row text-center mb-3">
+            <div class="col-md-3">
+                <div class="card">
+                    <div class="card-body">
+                        <h5 class="card-title">${progress.total_files || 0}</h5>
+                        <p class="card-text text-muted">Total Files</p>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-3">
+                <div class="card">
+                    <div class="card-body">
+                        <h5 class="card-title">${progress.categorized_files || 0}</h5>
+                        <p class="card-text text-muted">Categorized</p>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-3">
+                <div class="card">
+                    <div class="card-body">
+                        <h5 class="card-title">${progress.new_files || 0}</h5>
+                        <p class="card-text text-muted">New Files</p>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-3">
+                <div class="card">
+                    <div class="card-body">
+                        <h5 class="card-title">${(progress.errors || []).length}</h5>
+                        <p class="card-text text-muted">Errors</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    `;
+    
+    // Add duration if available
+    if (progress.duration) {
+        resultsHtml += `
+            <p class="text-muted">
+                <i class="bi bi-clock me-1"></i>
+                Completed in ${progress.duration.toFixed(2)} seconds
+            </p>
+        `;
+    }
+    
+    // Add errors if any
+    if (progress.errors && progress.errors.length > 0) {
+        resultsHtml += `
+            <div class="mt-3">
+                <h6>Errors:</h6>
+                <div class="alert alert-warning">
+                    <ul class="mb-0">
+                        ${progress.errors.map(error => `<li>${error}</li>`).join('')}
+                    </ul>
+                </div>
+            </div>
+        `;
+    }
+    
+    // Add action buttons
+    resultsHtml += `
+        <div class="mt-3">
+            <a href="/search" class="btn btn-primary">
+                <i class="bi bi-search me-2"></i>View Results
+            </a>
+            <button class="btn btn-outline-secondary" onclick="startNewScan()">
+                <i class="bi bi-arrow-clockwise me-2"></i>Scan Another Directory
+            </button>
+        </div>
+    `;
+    
+    document.getElementById('scan-results-content').innerHTML = resultsHtml;
+    
+    // Show completion notification
+    const message = isSuccess 
+        ? `Scan completed! Found ${progress.categorized_files || 0} categorizable files.`
+        : `Scan ${status}`;
+    
+    Utils.showToast(message, isSuccess ? 'success' : 'warning');
+}
+
+function startNewScan() {
+    // Reset form and hide sections
+    document.getElementById('scan-form').reset();
+    document.getElementById('scan-progress-section').style.display = 'none';
+    document.getElementById('scan-results-section').style.display = 'none';
+    
+    // Reset progress
+    document.getElementById('progress-bar').style.width = '0%';
+    document.getElementById('progress-text').textContent = '0%';
+    document.getElementById('files-scanned').textContent = '0';
+    document.getElementById('files-categorized').textContent = '0';
+    document.getElementById('new-files').textContent = '0';
+    document.getElementById('scan-errors').textContent = '0';
+    document.getElementById('current-file').textContent = '-';
+}
+
+async function checkScanStatus() {
+    try {
+        const status = await API.request('scan/status', { suppressToast: true });
+        if (status.active) {
+            // Resume monitoring active scan
+            document.getElementById('scan-progress-section').style.display = 'block';
+            document.getElementById('start-scan-btn').style.display = 'none';
+            document.getElementById('stop-scan-btn').style.display = 'inline-block';
+            document.getElementById('stop-scan-btn').disabled = false;
+            
+            startProgressSSE();
+        }
+        return status;
+    } catch (error) {
+        console.error('Failed to check scan status:', error);
+        // Return safe default status on error
+        return {
+            active: false,
+            progress: {}
+        };
+    }
+}
+</script>
+{% endblock %}

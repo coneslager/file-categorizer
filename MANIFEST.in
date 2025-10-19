@@ -1,0 +1,8 @@
+include README.md
+include LICENSE
+include pyproject.toml
+recursive-include src *.py
+recursive-include src/web/templates *.html
+recursive-include src/web/static *.css *.js *.ico
+recursive-exclude src *.pyc
+recursive-exclude src __pycache__

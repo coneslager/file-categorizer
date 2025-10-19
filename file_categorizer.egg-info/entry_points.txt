@@ -1,0 +1,3 @@
+[console_scripts]
+file-cat = src.cli.main:cli
+file-categorizer = src.cli.main:cli

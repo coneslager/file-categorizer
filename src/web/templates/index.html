@@ -1,0 +1,248 @@
+{% extends "base.html" %}
+
+{% block title %}Dashboard - File Categorizer{% endblock %}
+
+{% block content %}
+<div class="row">
+    <div class="col-12">
+        <h1 class="mb-4">
+            <i class="bi bi-speedometer2 me-2"></i>Dashboard
+        </h1>
+    </div>
+</div>
+
+<div class="row g-4">
+    <!-- Quick Stats Cards -->
+    <div class="col-md-3">
+        <div class="card bg-primary text-white">
+            <div class="card-body">
+                <div class="d-flex justify-content-between">
+                    <div>
+                        <h6 class="card-title">Total Files</h6>
+                        <h3 id="total-files">-</h3>
+                    </div>
+                    <div class="align-self-center">
+                        <i class="bi bi-files fs-1"></i>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <div class="col-md-3">
+        <div class="card bg-success text-white">
+            <div class="card-body">
+                <div class="d-flex justify-content-between">
+                    <div>
+                        <h6 class="card-title">Graphics</h6>
+                        <h3 id="graphics-count">-</h3>
+                    </div>
+                    <div class="align-self-center">
+                        <i class="bi bi-image fs-1"></i>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <div class="col-md-3">
+        <div class="card bg-warning text-white">
+            <div class="card-body">
+                <div class="d-flex justify-content-between">
+                    <div>
+                        <h6 class="card-title">LightBurn</h6>
+                        <h3 id="lightburn-count">-</h3>
+                    </div>
+                    <div class="align-self-center">
+                        <i class="bi bi-lightning fs-1"></i>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <div class="col-md-3">
+        <div class="card bg-info text-white">
+            <div class="card-body">
+                <div class="d-flex justify-content-between">
+                    <div>
+                        <h6 class="card-title">Vector</h6>
+                        <h3 id="vector-count">-</h3>
+                    </div>
+                    <div class="align-self-center">
+                        <i class="bi bi-vector-pen fs-1"></i>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="row mt-4">
+    <!-- Quick Actions -->
+    <div class="col-md-6">
+        <div class="card">
+            <div class="card-header">
+                <h5 class="mb-0">
+                    <i class="bi bi-lightning-charge me-2"></i>Quick Actions
+                </h5>
+            </div>
+            <div class="card-body">
+                <div class="d-grid gap-2">
+                    <a href="{{ url_for('main.scan') }}" class="btn btn-primary">
+                        <i class="bi bi-search me-2"></i>Scan Directory
+                    </a>
+                    <a href="{{ url_for('main.search') }}" class="btn btn-outline-primary">
+                        <i class="bi bi-filter me-2"></i>Search Files
+                    </a>
+                    <a href="{{ url_for('main.cleanup') }}" class="btn btn-outline-warning">
+                        <i class="bi bi-trash me-2"></i>Cleanup Database
+                    </a>
+                    <button class="btn btn-outline-info btn-sm mt-2" id="refresh-stats-btn">
+                        <i class="bi bi-arrow-clockwise me-1"></i>Refresh Stats
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Recent Files -->
+    <div class="col-md-6">
+        <div class="card">
+            <div class="card-header">
+                <h5 class="mb-0">
+                    <i class="bi bi-clock-history me-2"></i>Recent Files
+                </h5>
+            </div>
+            <div class="card-body">
+                <div id="recent-files">
+                    <div class="text-center text-muted">
+                        <i class="bi bi-hourglass-split"></i>
+                        <p class="mb-0">Loading recent files...</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+// Load dashboard data when page loads
+document.addEventListener('DOMContentLoaded', function() {
+    console.log('Dashboard JavaScript loaded!');
+    
+    // Add refresh button handler
+    const refreshBtn = document.getElementById('refresh-stats-btn');
+    console.log('Refresh button found:', refreshBtn);
+    if (refreshBtn) {
+        refreshBtn.addEventListener('click', function() {
+            console.log('Manual refresh triggered...');
+            loadDashboardStats();
+            loadRecentFiles();
+        });
+    }
+    
+    // Test if API and Utils are available
+    console.log('API available:', typeof API);
+    console.log('Utils available:', typeof Utils);
+    
+    initializeDashboard();
+});
+
+async function initializeDashboard() {
+    try {
+        // Check system health first
+        const health = await API.get('health');
+        
+        if (!health.database_ready) {
+            console.log('Database not ready, attempting initialization...');
+            try {
+        await API.post('init');
+                console.log('Database initialized successfully');
+            } catch (initError) {
+                console.warn('Database initialization failed:', initError);
+            }
+        }
+        
+        // Load dashboard data
+        await Promise.all([
+            loadDashboardStats(),
+            loadRecentFiles()
+        ]);
+        
+    } catch (error) {
+        console.error('Failed to initialize dashboard:', error);
+        // Still try to load data even if health check fails
+        loadDashboardStats();
+        loadRecentFiles();
+    }
+}
+
+async function loadDashboardStats() {
+    console.log('Loading dashboard stats...');
+    try {
+        console.log('Making API call to files/stats...');
+        const stats = await API.get('files/stats');
+        console.log('Stats received:', stats);
+        
+        // Update stat cards
+        document.getElementById('total-files').textContent = stats.total || 0;
+        document.getElementById('graphics-count').textContent = stats.graphics || 0;
+        document.getElementById('lightburn-count').textContent = stats.lightburn || 0;
+        document.getElementById('vector-count').textContent = stats.vector || 0;
+        
+        console.log('Dashboard stats updated successfully');
+        
+    } catch (error) {
+        console.error('Failed to load dashboard stats:', error);
+        // Show placeholder values on error
+        document.getElementById('total-files').textContent = '0';
+        document.getElementById('graphics-count').textContent = '0';
+        document.getElementById('lightburn-count').textContent = '0';
+        document.getElementById('vector-count').textContent = '0';
+    }
+}
+
+async function loadRecentFiles() {
+    try {
+        const response = await API.request('files/recent?limit=5', { suppressToast: true });
+        const recentFilesContainer = document.getElementById('recent-files');
+        
+        if (response.files && response.files.length > 0) {
+            const filesHtml = response.files.map(file => `
+                <div class="d-flex justify-content-between align-items-center py-2 border-bottom">
+                    <div class="flex-grow-1">
+                        <div class="fw-medium">${file.filename}</div>
+                        <small class="text-muted file-path">${file.path}</small>
+                    </div>
+                    <div class="text-end">
+                        ${Utils.getCategoryBadge(file.category)}
+                        <div class="small text-muted">${Utils.formatFileSize(file.size)}</div>
+                    </div>
+                </div>
+            `).join('');
+            
+            recentFilesContainer.innerHTML = filesHtml;
+        } else {
+            recentFilesContainer.innerHTML = `
+                <div class="text-center text-muted py-3">
+                    <i class="bi bi-inbox"></i>
+                    <p class="mb-0">No files found. Start by scanning a directory.</p>
+                </div>
+            `;
+        }
+        
+    } catch (error) {
+        console.error('Failed to load recent files:', error);
+        document.getElementById('recent-files').innerHTML = `
+            <div class="text-center text-muted py-3">
+                <i class="bi bi-inbox"></i>
+                <p class="mb-0">No files found. Start by scanning a directory.</p>
+            </div>
+        `;
+    }
+}
+</script>
+{% endblock %}

@@ -1,0 +1,541 @@
+{% extends "base.html" %}
+
+{% block title %}Database Cleanup - File Categorizer{% endblock %}
+
+{% block content %}
+<div class="row">
+    <div class="col-12">
+        <h1 class="mb-4">
+            <i class="bi bi-trash me-2"></i>Database Cleanup
+        </h1>
+    </div>
+</div>
+
+<!-- Cleanup Options -->
+<div class="row mb-4">
+    <div class="col-12">
+        <div class="card">
+            <div class="card-header">
+                <h5 class="mb-0">Cleanup Options</h5>
+            </div>
+            <div class="card-body">
+                <div class="alert alert-info">
+                    <i class="bi bi-info-circle me-2"></i>
+                    <strong>Database cleanup</strong> removes records for files that no longer exist on disk. 
+                    Use dry-run mode to preview changes before applying them.
+                </div>
+                
+                <form id="cleanup-form">
+                    <div class="row g-3">
+                        <div class="col-md-6">
+                            <div class="form-check form-switch">
+                                <input class="form-check-input" type="checkbox" id="dry-run-mode" checked>
+                                <label class="form-check-label" for="dry-run-mode">
+                                    <strong>Dry Run Mode</strong>
+                                </label>
+                                <div class="form-text">Preview changes without actually removing records</div>
+                            </div>
+                        </div>
+                        <div class="col-md-6">
+                            <label for="batch-size" class="form-label">Batch Size</label>
+                            <select class="form-select" id="batch-size">
+                                <option value="100">100 files per batch</option>
+                                <option value="500">500 files per batch</option>
+                                <option value="1000" selected>1000 files per batch</option>
+                                <option value="2000">2000 files per batch</option>
+                            </select>
+                            <div class="form-text">Number of files to process in each batch</div>
+                        </div>
+                    </div>
+                    
+                    <div class="mt-3">
+                        <button type="submit" class="btn btn-warning" id="start-cleanup-btn">
+                            <i class="bi bi-play-fill me-2"></i>Start Cleanup
+                        </button>
+                        <button type="button" class="btn btn-outline-danger" id="stop-cleanup-btn" 
+                                style="display: none;" disabled>
+                            <i class="bi bi-stop-fill me-2"></i>Stop Cleanup
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Cleanup Progress -->
+<div class="row mb-4" id="cleanup-progress-section" style="display: none;">
+    <div class="col-12">
+        <div class="card">
+            <div class="card-header">
+                <h5 class="mb-0">Cleanup Progress</h5>
+            </div>
+            <div class="card-body">
+                <div class="mb-3">
+                    <div class="d-flex justify-content-between mb-1">
+                        <span>Progress</span>
+                        <span id="cleanup-progress-text">0%</span>
+                    </div>
+                    <div class="progress">
+                        <div class="progress-bar bg-warning" id="cleanup-progress-bar" role="progressbar" 
+                             style="width: 0%" aria-valuenow="0" aria-valuemin="0" aria-valuemax="100">
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="row text-center">
+                    <div class="col-md-3">
+                        <div class="border rounded p-2">
+                            <h6 class="text-muted mb-1">Files Checked</h6>
+                            <h4 id="files-checked">0</h4>
+                        </div>
+                    </div>
+                    <div class="col-md-3">
+                        <div class="border rounded p-2">
+                            <h6 class="text-muted mb-1">To Remove</h6>
+                            <h4 id="files-to-remove">0</h4>
+                        </div>
+                    </div>
+                    <div class="col-md-3">
+                        <div class="border rounded p-2">
+                            <h6 class="text-muted mb-1">Errors</h6>
+                            <h4 id="cleanup-errors">0</h4>
+                        </div>
+                    </div>
+                    <div class="col-md-3">
+                        <div class="border rounded p-2">
+                            <h6 class="text-muted mb-1">Status</h6>
+                            <h6 id="cleanup-status" class="text-primary">Ready</h6>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Cleanup Results -->
+<div class="row" id="cleanup-results-section" style="display: none;">
+    <div class="col-12">
+        <div class="card">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <h5 class="mb-0">Cleanup Results</h5>
+                <button class="btn btn-sm btn-outline-secondary" id="download-results">
+                    <i class="bi bi-download me-1"></i>Download Report
+                </button>
+            </div>
+            <div class="card-body">
+                <div id="cleanup-results-content">
+                    <!-- Results will be populated here -->
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+let cleanupEventSource = null;
+
+document.addEventListener('DOMContentLoaded', function() {
+    const cleanupForm = document.getElementById('cleanup-form');
+    const startBtn = document.getElementById('start-cleanup-btn');
+    const stopBtn = document.getElementById('stop-cleanup-btn');
+    const dryRunToggle = document.getElementById('dry-run-mode');
+    const downloadBtn = document.getElementById('download-results');
+    
+    cleanupForm.addEventListener('submit', function(e) {
+        e.preventDefault();
+        startCleanup();
+    });
+    
+    stopBtn.addEventListener('click', function() {
+        stopCleanup();
+    });
+    
+    dryRunToggle.addEventListener('change', function() {
+        updateCleanupButtonText();
+    });
+    
+    downloadBtn.addEventListener('click', function() {
+        downloadCleanupReport();
+    });
+    
+    updateCleanupButtonText();
+    
+    // Check for existing cleanup on page load
+    checkCleanupStatus();
+    
+    // Cleanup SSE connection when page is unloaded
+    window.addEventListener('beforeunload', function() {
+        if (cleanupEventSource) {
+            cleanupEventSource.close();
+        }
+    });
+});
+
+function updateCleanupButtonText() {
+    const isDryRun = document.getElementById('dry-run-mode').checked;
+    const startBtn = document.getElementById('start-cleanup-btn');
+    
+    if (isDryRun) {
+        startBtn.innerHTML = '<i class="bi bi-eye me-2"></i>Preview Cleanup';
+        startBtn.className = 'btn btn-info';
+    } else {
+        startBtn.innerHTML = '<i class="bi bi-play-fill me-2"></i>Start Cleanup';
+        startBtn.className = 'btn btn-warning';
+    }
+}
+
+async function startCleanup() {
+    const isDryRun = document.getElementById('dry-run-mode').checked;
+    const batchSize = parseInt(document.getElementById('batch-size').value);
+    
+    try {
+        // Start cleanup
+        await API.post('cleanup', {
+            dry_run: isDryRun,
+            batch_size: batchSize
+        });
+        
+        const message = isDryRun ? 'Cleanup preview started' : 'Cleanup started';
+        Utils.showToast(message, 'success');
+        
+        // Show progress section
+        document.getElementById('cleanup-progress-section').style.display = 'block';
+        document.getElementById('cleanup-status').textContent = 'Running';
+        
+        // Update button states
+        document.getElementById('start-cleanup-btn').style.display = 'none';
+        document.getElementById('stop-cleanup-btn').style.display = 'inline-block';
+        document.getElementById('stop-cleanup-btn').disabled = false;
+        
+        // Start SSE for real-time progress
+        startCleanupProgressSSE();
+        
+    } catch (error) {
+        console.error('Failed to start cleanup:', error);
+        Utils.showToast('Failed to start cleanup: ' + error.message, 'danger');
+    }
+}
+
+async function stopCleanup() {
+    try {
+        await API.delete('cleanup');
+        Utils.showToast('Cleanup stop requested', 'info');
+        
+        // Update button states
+        document.getElementById('stop-cleanup-btn').disabled = true;
+        
+    } catch (error) {
+        console.error('Failed to stop cleanup:', error);
+        Utils.showToast('Failed to stop cleanup: ' + error.message, 'danger');
+    }
+}
+
+function startCleanupProgressSSE() {
+    // Close existing connection
+    if (cleanupEventSource) {
+        cleanupEventSource.close();
+    }
+    
+    // Create new SSE connection
+    cleanupEventSource = new EventSource('/api/progress/cleanup');
+    
+    cleanupEventSource.onopen = function(event) {
+        console.log('Connected to cleanup progress stream');
+    };
+    
+    cleanupEventSource.onmessage = function(event) {
+        try {
+            const data = JSON.parse(event.data);
+            
+            switch (data.type) {
+                case 'connected':
+                    console.log('SSE connected:', data.message);
+                    break;
+                    
+                case 'progress':
+                    updateCleanupProgress(data);
+                    break;
+                    
+                case 'finished':
+                    console.log('SSE finished:', data.message);
+                    cleanupEventSource.close();
+                    cleanupEventSource = null;
+                    
+                    // Get final status
+                    checkCleanupStatus().then(status => {
+                        if (status && status.progress) {
+                            onCleanupComplete(status.progress);
+                        }
+                    });
+                    break;
+                    
+                case 'error':
+                    console.error('SSE error:', data.message);
+                    Utils.showToast('Progress stream error: ' + data.message, 'danger');
+                    break;
+            }
+            
+        } catch (error) {
+            console.error('Failed to parse SSE data:', error);
+        }
+    };
+    
+    cleanupEventSource.onerror = function(event) {
+        console.error('SSE connection error:', event);
+        
+        // Fallback to polling if SSE fails
+        if (cleanupEventSource.readyState === EventSource.CLOSED) {
+            console.log('SSE connection closed, falling back to polling');
+            cleanupEventSource = null;
+            startCleanupProgressPolling();
+        }
+    };
+}
+
+function startCleanupProgressPolling() {
+    // Fallback polling method
+    const pollInterval = setInterval(async () => {
+        try {
+            const status = await API.request('cleanup/status', { suppressToast: true });
+            updateCleanupProgress(status);
+            
+            if (!status.active) {
+                clearInterval(pollInterval);
+                onCleanupComplete(status.progress);
+            }
+            
+        } catch (error) {
+            console.error('Failed to get cleanup status:', error);
+        }
+    }, 1000);
+}
+
+function updateCleanupProgress(status) {
+    if (!status.progress) return;
+    
+    const progress = status.progress;
+    
+    // Update progress bar (estimate based on files checked)
+    const percentage = progress.total_checked > 0 
+        ? Math.min(100, Math.round((progress.total_checked / 1000) * 100)) // Rough estimate
+        : 0;
+    
+    document.getElementById('cleanup-progress-bar').style.width = percentage + '%';
+    document.getElementById('cleanup-progress-bar').setAttribute('aria-valuenow', percentage);
+    document.getElementById('cleanup-progress-text').textContent = percentage + '%';
+    
+    // Update counters
+    document.getElementById('files-checked').textContent = progress.total_checked || 0;
+    document.getElementById('files-to-remove').textContent = progress.removed_count || 0;
+    document.getElementById('cleanup-errors').textContent = (progress.errors || []).length;
+    
+    // Update status
+    const statusText = progress.status || 'Running';
+    document.getElementById('cleanup-status').textContent = 
+        statusText.charAt(0).toUpperCase() + statusText.slice(1);
+}
+
+function onCleanupComplete(progress) {
+    // Update button states
+    document.getElementById('start-cleanup-btn').style.display = 'inline-block';
+    document.getElementById('stop-cleanup-btn').style.display = 'none';
+    
+    // Show results section
+    document.getElementById('cleanup-results-section').style.display = 'block';
+    
+    // Create results summary
+    const status = progress.status;
+    const isSuccess = status === 'completed';
+    const isDryRun = progress.dry_run;
+    const alertClass = isSuccess ? 'alert-success' : 'alert-warning';
+    const icon = isSuccess ? 'bi-check-circle' : 'bi-exclamation-triangle';
+    
+    let resultsHtml = `
+        <div class="alert ${alertClass}">
+            <i class="${icon} me-2"></i>
+            <strong>Cleanup ${status}</strong>
+            ${isDryRun ? ' (Preview Mode)' : ''}
+        </div>
+        
+        <div class="row text-center mb-3">
+            <div class="col-md-3">
+                <div class="card">
+                    <div class="card-body">
+                        <h5 class="card-title">${progress.total_checked || 0}</h5>
+                        <p class="card-text text-muted">Files Checked</p>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-3">
+                <div class="card">
+                    <div class="card-body">
+                        <h5 class="card-title">${progress.removed_count || 0}</h5>
+                        <p class="card-text text-muted">${isDryRun ? 'Would Remove' : 'Removed'}</p>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-3">
+                <div class="card">
+                    <div class="card-body">
+                        <h5 class="card-title">${(progress.errors || []).length}</h5>
+                        <p class="card-text text-muted">Errors</p>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-3">
+                <div class="card">
+                    <div class="card-body">
+                        <h5 class="card-title">
+                            ${progress.total_checked > 0 ? 
+                                Math.round((progress.removed_count / progress.total_checked) * 100) : 0}%
+                        </h5>
+                        <p class="card-text text-muted">Cleanup Rate</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    `;
+    
+    // Add removed files list if any
+    if (progress.removed_files && progress.removed_files.length > 0) {
+        const displayFiles = progress.removed_files.slice(0, 10); // Show first 10
+        const hasMore = progress.removed_files.length > 10;
+        
+        resultsHtml += `
+            <div class="mt-3">
+                <h6>${isDryRun ? 'Files that would be removed:' : 'Removed files:'}</h6>
+                <div class="alert alert-light">
+                    <ul class="mb-0 text-monospace small">
+                        ${displayFiles.map(file => `<li>${file}</li>`).join('')}
+                        ${hasMore ? `<li class="text-muted">... and ${progress.removed_files.length - 10} more</li>` : ''}
+                    </ul>
+                </div>
+            </div>
+        `;
+    }
+    
+    // Add errors if any
+    if (progress.errors && progress.errors.length > 0) {
+        resultsHtml += `
+            <div class="mt-3">
+                <h6>Errors:</h6>
+                <div class="alert alert-warning">
+                    <ul class="mb-0">
+                        ${progress.errors.slice(0, 5).map(error => `<li>${error}</li>`).join('')}
+                        ${progress.errors.length > 5 ? 
+                            `<li class="text-muted">... and ${progress.errors.length - 5} more errors</li>` : ''}
+                    </ul>
+                </div>
+            </div>
+        `;
+    }
+    
+    // Add action buttons
+    resultsHtml += `
+        <div class="mt-3">
+            ${isDryRun && progress.removed_count > 0 ? `
+                <button class="btn btn-warning" onclick="runActualCleanup()">
+                    <i class="bi bi-trash me-2"></i>Run Actual Cleanup
+                </button>
+            ` : ''}
+            <button class="btn btn-outline-secondary" onclick="startNewCleanup()">
+                <i class="bi bi-arrow-clockwise me-2"></i>Run Another Cleanup
+            </button>
+        </div>
+    `;
+    
+    document.getElementById('cleanup-results-content').innerHTML = resultsHtml;
+    
+    // Store results for download
+    window.lastCleanupResults = progress;
+    
+    // Show completion notification
+    const message = isDryRun 
+        ? `Cleanup preview completed! ${progress.removed_count || 0} files would be removed.`
+        : `Cleanup completed! Removed ${progress.removed_count || 0} file records.`;
+    
+    Utils.showToast(message, isSuccess ? 'success' : 'warning');
+}
+
+function runActualCleanup() {
+    // Switch to actual cleanup mode
+    document.getElementById('dry-run-mode').checked = false;
+    updateCleanupButtonText();
+    
+    // Start cleanup
+    startCleanup();
+}
+
+function startNewCleanup() {
+    // Reset form and hide sections
+    document.getElementById('cleanup-progress-section').style.display = 'none';
+    document.getElementById('cleanup-results-section').style.display = 'none';
+    
+    // Reset progress
+    document.getElementById('cleanup-progress-bar').style.width = '0%';
+    document.getElementById('cleanup-progress-text').textContent = '0%';
+    document.getElementById('files-checked').textContent = '0';
+    document.getElementById('files-to-remove').textContent = '0';
+    document.getElementById('cleanup-errors').textContent = '0';
+    document.getElementById('cleanup-status').textContent = 'Ready';
+}
+
+async function checkCleanupStatus() {
+    try {
+        const status = await API.request('cleanup/status', { suppressToast: true });
+        if (status.active) {
+            // Resume monitoring active cleanup
+            document.getElementById('cleanup-progress-section').style.display = 'block';
+            document.getElementById('start-cleanup-btn').style.display = 'none';
+            document.getElementById('stop-cleanup-btn').style.display = 'inline-block';
+            document.getElementById('stop-cleanup-btn').disabled = false;
+            
+            startCleanupProgressSSE();
+        }
+        return status;
+    } catch (error) {
+        console.error('Failed to check cleanup status:', error);
+        // Return safe default status on error
+        return {
+            active: false,
+            progress: {}
+        };
+    }
+}
+
+function downloadCleanupReport() {
+    if (!window.lastCleanupResults) {
+        Utils.showToast('No cleanup results to download', 'warning');
+        return;
+    }
+    
+    const results = window.lastCleanupResults;
+    const reportData = {
+        timestamp: new Date().toISOString(),
+        status: results.status,
+        dry_run: results.dry_run,
+        total_checked: results.total_checked,
+        removed_count: results.removed_count,
+        removed_files: results.removed_files || [],
+        errors: results.errors || []
+    };
+    
+    // Create and download JSON file
+    const blob = new Blob([JSON.stringify(reportData, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `cleanup-report-${new Date().toISOString().split('T')[0]}.json`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+    
+    Utils.showToast('Cleanup report downloaded', 'success');
+}
+</script>
+{% endblock %}

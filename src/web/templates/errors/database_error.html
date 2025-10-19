@@ -1,0 +1,58 @@
+{% extends "base.html" %}
+
+{% block title %}Database Error - File Categorizer{% endblock %}
+
+{% block content %}
+<div class="row justify-content-center">
+    <div class="col-md-8">
+        <div class="py-5">
+            <div class="text-center mb-4">
+                <i class="bi bi-database-exclamation display-1 text-warning"></i>
+                <h1 class="mt-3">Database Error</h1>
+                <p class="lead text-muted">
+                    There was a problem accessing the database.
+                </p>
+            </div>
+            
+            <div class="alert alert-warning" role="alert">
+                <h5 class="alert-heading">
+                    <i class="bi bi-exclamation-triangle me-2"></i>What happened?
+                </h5>
+                <p class="mb-0">{{ error_message or "The database is temporarily unavailable or corrupted." }}</p>
+            </div>
+            
+            <div class="card">
+                <div class="card-body">
+                    <h5 class="card-title">
+                        <i class="bi bi-tools me-2"></i>Troubleshooting Steps
+                    </h5>
+                    <ol class="mb-3">
+                        <li>Wait a moment and try refreshing the page</li>
+                        <li>Check if you have sufficient disk space</li>
+                        <li>Ensure the application has write permissions to the database directory</li>
+                        <li>If the problem persists, the database may need to be rebuilt</li>
+                    </ol>
+                    
+                    <div class="d-flex gap-2 flex-wrap">
+                        <a href="{{ url_for('main.index') }}" class="btn btn-primary">
+                            <i class="bi bi-arrow-clockwise me-2"></i>Try Again
+                        </a>
+                        <a href="{{ url_for('main.index') }}" class="btn btn-outline-secondary">
+                            <i class="bi bi-house me-2"></i>Go to Dashboard
+                        </a>
+                    </div>
+                </div>
+            </div>
+            
+            {% if config.DEBUG and error_details %}
+            <div class="mt-4">
+                <details class="border rounded p-3">
+                    <summary class="text-danger fw-bold">Technical Details (Debug Mode)</summary>
+                    <pre class="mt-2 text-muted small">{{ error_details }}</pre>
+                </details>
+            </div>
+            {% endif %}
+        </div>
+    </div>
+</div>
+{% endblock %}
