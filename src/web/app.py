@@ -26,10 +26,17 @@ def create_app(config=None):
     app.config.update({
         'SECRET_KEY': 'dev-key-change-in-production',
         'JSON_SORT_KEYS': False,
+        'TEMPLATES_AUTO_RELOAD': True,  # Disable template caching
+        'SEND_FILE_MAX_AGE_DEFAULT': 0,  # Disable static file caching
     })
     
     if config:
         app.config.update(config)
+    
+    # Disable template caching in debug mode
+    if app.config.get('DEBUG', False):
+        app.jinja_env.auto_reload = True
+        app.config['TEMPLATES_AUTO_RELOAD'] = True
     
     # Register blueprints
     app.register_blueprint(main_bp)

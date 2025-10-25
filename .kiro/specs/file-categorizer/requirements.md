@@ -76,3 +76,15 @@ A file categorization and management system that scans hard drives to identify, 
 3. THE File_Categorizer_System SHALL store file records with unique identifiers to prevent duplicates
 4. WHEN rescanning directories, THE File_Categorizer_System SHALL update existing records and add new ones
 5. THE File_Categorizer_System SHALL maintain database integrity and handle concurrent access safely
+
+### Requirement 6
+
+**User Story:** As a user, I want to quickly navigate to file locations from search results, so that I can easily access files in my file system.
+
+#### Acceptance Criteria
+
+1. WHEN viewing search results in the Web_Interface, THE File_Categorizer_System SHALL provide options to copy file paths to clipboard
+2. THE File_Categorizer_System SHALL provide separate options to copy complete file paths and folder paths
+3. WHEN the user requests to copy a file path, THE File_Categorizer_System SHALL copy the full file path to the system clipboard
+4. WHEN the user requests to copy a folder path, THE File_Categorizer_System SHALL copy the directory path containing the file to the system clipboard
+5. THE File_Categorizer_System SHALL provide visual feedback when paths are successfully copied to clipboard

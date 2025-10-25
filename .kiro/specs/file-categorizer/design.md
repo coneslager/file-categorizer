@@ -85,6 +85,7 @@ python -m file_categorizer web [--port PORT]
 - Search interface with category filters
 - Real-time scan progress using Server-Sent Events
 - Cleanup tools with dry-run preview
+- File navigation tools with clipboard integration for path copying
 
 ## Data Models
 
@@ -172,11 +173,18 @@ CREATE INDEX idx_path ON files(path);
 - Configurable scan depth limits using pathlib recursion control
 - Progress reporting using rich progress bars and SSE for web
 
+### File Navigation Integration
+- **Clipboard API Integration**: Uses modern browser Clipboard API with fallback for older browsers
+- **Path Extraction**: JavaScript functions to extract folder paths from full file paths
+- **Cross-Platform Path Handling**: Supports both Windows (`\`) and POSIX (`/`) path separators
+- **User Feedback**: Toast notifications confirm successful clipboard operations
+
 ### Security Considerations
 - Path traversal protection using pathlib.Path.resolve()
 - Input validation for all user-provided paths
 - Flask request size limits for web API endpoints
 - No execution of discovered files, metadata extraction only
+- Clipboard operations are client-side only, no server-side path manipulation
 
 ### Deployment
 - Python package with entry points for CLI commands
